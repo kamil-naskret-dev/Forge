@@ -1,0 +1,14 @@
+# Global owner — reviews required on all PRs
+* @your-username
+
+# Backend
+/apps/api/ @your-username
+
+# Frontend
+/apps/web/ @your-username
+
+# Shared packages
+/packages/ @your-username
+
+# CI/CD
+/.github/ @your-username
