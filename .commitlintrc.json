@@ -1,0 +1,28 @@
+{
+  "extends": ["@commitlint/config-conventional"],
+  "rules": {
+    "scope-enum": [
+      2,
+      "always",
+      [
+        "api",
+        "web",
+        "types",
+        "config",
+        "auth",
+        "rooms",
+        "editor",
+        "presence",
+        "execution",
+        "ai",
+        "chat",
+        "snapshots",
+        "dashboard",
+        "ci",
+        "docker",
+        "deps"
+      ]
+    ],
+    "scope-empty": [1, "never"]
+  }
+}
