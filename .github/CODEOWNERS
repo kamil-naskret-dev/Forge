@@ -1,0 +1,19 @@
+# Global owner — reviews required on all PRs
+
+- @kamil-naskret-dev
+
+# Backend
+
+/apps/api/ @kamil-naskret-dev
+
+# Frontend
+
+/apps/web/ @ykamil-naskret-dev
+
+# Shared packages
+
+/packages/ @kamil-naskret-dev
+
+# CI/CD
+
+/.github/ @kamil-naskret-dev
