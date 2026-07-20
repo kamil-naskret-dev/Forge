@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum RoomRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum FileType {
+  FILE
+  FOLDER
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  ACCEPTED
+  WRONG_ANSWER
+  TIME_LIMIT_EXCEEDED
+  COMPILATION_ERROR
+  RUNTIME_ERROR
+}
+
+enum MessageType {
+  TEXT
+  LINE_REACTION
+  SYSTEM
+}
+
+enum SnapshotType {
+  AUTO
+  MANUAL
+  RESTORE
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  displayName  String
+  avatarUrl    String?
+  passwordHash String?
+  googleId     String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  roomMembers   RoomMember[]
+  messages      ChatMessage[]
+  snapshots     Snapshot[]
+  executions    Execution[]
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─── Rooms ────────────────────────────────────────────────────────────────────
+
+model Room {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  language    String     @default("javascript")
+  visibility  Visibility @default(PRIVATE)
+  inviteCode  String     @unique @default(cuid())
+  ownerId     String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  members    RoomMember[]
+  files      File[]
+  snapshots  Snapshot[]
+  messages   ChatMessage[]
+  executions Execution[]
+}
+
+model RoomMember {
+  id       String   @id @default(cuid())
+  roomId   String
+  userId   String
+  role     RoomRole @default(VIEWER)
+  joinedAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+}
+
+// ─── Files ────────────────────────────────────────────────────────────────────
+
+model File {
+  id        String   @id @default(cuid())
+  roomId    String
+  parentId  String?
+  name      String
+  type      FileType @default(FILE)
+  language  String?
+  content   Bytes? // Yjs encoded state (Y.encodeStateAsUpdate)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  room     Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  parent   File? @relation("FileTree", fields: [parentId], references: [id])
+  children File[] @relation("FileTree")
+
+  @@unique([roomId, parentId, name])
+  @@index([roomId])
+}
+
+// ─── Execution ────────────────────────────────────────────────────────────────
+
+model Execution {
+  id          String          @id @default(cuid())
+  roomId      String
+  fileId      String
+  userId      String
+  judge0Token String?         @unique
+  language    String
+  sourceCode  String
+  stdin       String?
+  stdout      String?
+  stderr      String?
+  compileOut  String?
+  status      ExecutionStatus @default(PENDING)
+  exitCode    Int?
+  timeMs      Float?
+  memoryKb    Int?
+  createdAt   DateTime        @default(now())
+  finishedAt  DateTime?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([roomId])
+}
+
+// ─── Chat ─────────────────────────────────────────────────────────────────────
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  roomId    String
+  userId    String
+  content   String
+  type      MessageType @default(TEXT)
+  lineRef   Int?
+  fileId    String?
+  replyToId String?
+  reactions Json        @default("{}")
+  createdAt DateTime    @default(now())
+  editedAt  DateTime?
+
+  room    Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id])
+  replyTo ChatMessage? @relation("Replies", fields: [replyToId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies ChatMessage[] @relation("Replies")
+
+  @@index([roomId, createdAt])
+}
+
+// ─── Snapshots ────────────────────────────────────────────────────────────────
+
+model Snapshot {
+  id        String       @id @default(cuid())
+  roomId    String
+  userId    String
+  label     String?
+  type      SnapshotType @default(AUTO)
+  createdAt DateTime     @default(now())
+
+  room  Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user  User           @relation(fields: [userId], references: [id])
+  files SnapshotFile[]
+
+  @@index([roomId, createdAt])
+}
+
+model SnapshotFile {
+  id         String @id @default(cuid())
+  snapshotId String
+  fileId     String
+  content    Bytes // Y.encodeStateAsUpdate binary
+
+  snapshot Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+}
