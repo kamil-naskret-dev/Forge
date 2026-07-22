@@ -17,6 +17,13 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+export interface GoogleProfile {
+  googleId: string;
+  email: string;
+  displayName: string;
+  avatarUrl?: string;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -109,7 +116,47 @@ export class AuthService {
     }
   }
 
-  private async issueTokens(user: User): Promise<AuthTokens> {
+  async findOrCreateGoogleUser(profile: GoogleProfile): Promise<User> {
+    // Try to find by googleId first
+    const byGoogleId = await this.prisma.user.findUnique({
+      where: { googleId: profile.googleId },
+    });
+    if (byGoogleId) return byGoogleId;
+
+    // Try to link existing account with same email
+    const byEmail = await this.prisma.user.findUnique({
+      where: { email: profile.email },
+    });
+    if (byEmail) {
+      return this.prisma.user.update({
+        where: { id: byEmail.id },
+        data: { googleId: profile.googleId, avatarUrl: profile.avatarUrl },
+      });
+    }
+
+    // Create new user
+    const username = profile.email.split('@')[0].replace(/[^a-z0-9_]/gi, '_');
+    const baseUsername = username.slice(0, 20);
+
+    // Ensure username uniqueness with a numeric suffix if needed
+    let finalUsername = baseUsername;
+    let suffix = 1;
+    while (await this.prisma.user.findUnique({ where: { username: finalUsername } })) {
+      finalUsername = `${baseUsername}${String(suffix++)}`;
+    }
+
+    return this.prisma.user.create({
+      data: {
+        email: profile.email,
+        username: finalUsername,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+        googleId: profile.googleId,
+      },
+    });
+  }
+
+  async issueTokens(user: User): Promise<AuthTokens> {
     const accessToken = this.signAccessToken(user);
 
     const rawToken = randomBytes(40).toString('hex');

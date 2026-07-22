@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Redirect,
+  UseGuards,
+} from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import type { User } from '@prisma/client';
 import { CurrentUser, Public } from '../common/decorators/index.js';
 import type { AuthTokens } from './auth.service.js';
@@ -35,6 +45,27 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   logout(@CurrentUser() user: User, @Body() dto: RefreshDto): Promise<void> {
     return this.authService.logout(user.id, dto.refreshToken);
+  }
+
+  @Public()
+  @UseGuards(AuthGuard('google'))
+  @Get('google')
+  googleLogin(): void {
+    // Passport redirects to Google — body intentionally empty
+  }
+
+  @Public()
+  @UseGuards(AuthGuard('google'))
+  @Get('google/callback')
+  @Redirect()
+  async googleCallback(@CurrentUser() user: User): Promise<{ url: string }> {
+    const tokens = await this.authService.issueTokens(user);
+    const params = new URLSearchParams({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    });
+    const frontendUrl = process.env['FRONTEND_URL'] ?? 'http://localhost:5173';
+    return { url: `${frontendUrl}/auth/callback?${params.toString()}` };
   }
 
   @Get('me')
