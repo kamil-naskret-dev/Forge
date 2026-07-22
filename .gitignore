@@ -34,7 +34,7 @@ npm-debug.log*
 *.tsbuildinfo
 
 # Prisma generated client
-apps/api/src/generated/
+apps/api/node_modules/.prisma/
 
 # Test coverage
 coverage/
