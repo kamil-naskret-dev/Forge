@@ -8,20 +8,21 @@ import ms, { type StringValue } from 'ms';
 import type { Env } from '../config/index.js';
 import { PrismaService } from '../prisma/index.js';
 import type { LoginDto } from './dto/login.dto.js';
-import type { RefreshDto } from './dto/refresh.dto.js';
 import type { RegisterDto } from './dto/register.dto.js';
 import type { JwtPayload } from './strategies/jwt.strategy.js';
-
-export interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-}
 
 export interface GoogleProfile {
   googleId: string;
   email: string;
   displayName: string;
   avatarUrl?: string;
+}
+
+/** Returned by all auth endpoints — refresh token is sent via httpOnly cookie */
+export interface AuthResult {
+  accessToken: string;
+  /** Raw refresh token — controller sets this as httpOnly cookie, never sent to client in body */
+  refreshToken: string;
 }
 
 @Injectable()
@@ -32,7 +33,7 @@ export class AuthService {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthTokens> {
+  async register(dto: RegisterDto): Promise<AuthResult> {
     const existing = await this.prisma.user.findFirst({
       where: { OR: [{ email: dto.email }, { username: dto.username }] },
     });
@@ -55,7 +56,7 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
-  async login(dto: LoginDto): Promise<AuthTokens> {
+  async login(dto: LoginDto): Promise<AuthResult> {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
 
     if (!user?.passwordHash) {
@@ -71,7 +72,7 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
-  async refresh(dto: RefreshDto): Promise<AuthTokens> {
+  async refresh(rawRefreshToken: string): Promise<AuthResult> {
     const tokens = await this.prisma.refreshToken.findMany({
       where: { revoked: false, expiresAt: { gt: new Date() } },
       include: { user: true },
@@ -80,7 +81,7 @@ export class AuthService {
     let matched: (typeof tokens)[number] | undefined;
 
     for (const token of tokens) {
-      const ok = await bcrypt.compare(dto.refreshToken, token.tokenHash);
+      const ok = await bcrypt.compare(rawRefreshToken, token.tokenHash);
       if (ok) {
         matched = token;
         break;
@@ -99,13 +100,13 @@ export class AuthService {
     return this.issueTokens(matched.user);
   }
 
-  async logout(userId: string, refreshToken: string): Promise<void> {
+  async logout(userId: string, rawRefreshToken: string): Promise<void> {
     const tokens = await this.prisma.refreshToken.findMany({
       where: { userId, revoked: false },
     });
 
     for (const token of tokens) {
-      const ok = await bcrypt.compare(refreshToken, token.tokenHash);
+      const ok = await bcrypt.compare(rawRefreshToken, token.tokenHash);
       if (ok) {
         await this.prisma.refreshToken.update({
           where: { id: token.id },
@@ -117,13 +118,11 @@ export class AuthService {
   }
 
   async findOrCreateGoogleUser(profile: GoogleProfile): Promise<User> {
-    // Try to find by googleId first
     const byGoogleId = await this.prisma.user.findUnique({
       where: { googleId: profile.googleId },
     });
     if (byGoogleId) return byGoogleId;
 
-    // Try to link existing account with same email
     const byEmail = await this.prisma.user.findUnique({
       where: { email: profile.email },
     });
@@ -134,11 +133,11 @@ export class AuthService {
       });
     }
 
-    // Create new user
-    const username = profile.email.split('@')[0].replace(/[^a-z0-9_]/gi, '_');
-    const baseUsername = username.slice(0, 20);
+    const baseUsername = profile.email
+      .split('@')[0]
+      .replace(/[^a-z0-9_]/gi, '_')
+      .slice(0, 20);
 
-    // Ensure username uniqueness with a numeric suffix if needed
     let finalUsername = baseUsername;
     let suffix = 1;
     while (await this.prisma.user.findUnique({ where: { username: finalUsername } })) {
@@ -156,7 +155,7 @@ export class AuthService {
     });
   }
 
-  async issueTokens(user: User): Promise<AuthTokens> {
+  async issueTokens(user: User): Promise<AuthResult> {
     const accessToken = this.signAccessToken(user);
 
     const rawToken = randomBytes(40).toString('hex');

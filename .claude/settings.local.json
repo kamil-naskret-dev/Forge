@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\(module|service|controller\\)\\\\.ts$\")",
+      "Bash('/c/Program Files/GitHub CLI/gh.exe' issue create --repo kamil-naskret-dev/Forge --title 'feat\\(web\\): setup React Router, shadcn/ui and Tailwind' --label phase:1-auth,frontend --body ':*)"
+    ]
+  }
+}
