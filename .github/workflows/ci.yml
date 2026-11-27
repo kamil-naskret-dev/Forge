@@ -116,6 +116,14 @@ jobs:
 
       - name: Run E2E tests
         run: npm run test:e2e
+        env:
+          DATABASE_URL: postgresql://forge:forge_secret@localhost:5432/forge_test
+          REDIS_URL: redis://localhost:6379
+          JWT_ACCESS_SECRET: ci-access-secret-minimum-32-characters-long
+          JWT_REFRESH_SECRET: ci-refresh-secret-minimum-32-characters-long
+          NODE_ENV: test
+          PORT: 3001
+          FRONTEND_URL: http://localhost:5173
 
   build:
     name: Production Build
