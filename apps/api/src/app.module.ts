@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
-import { AuthModule } from './auth/index.js';
-import { validateEnv } from './config/index.js';
-import { PrismaModule } from './prisma/index.js';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { AuthModule } from './auth/index';
+import { validateEnv } from './config/index';
+import { PrismaModule } from './prisma/index';
 
 @Module({
   imports: [
