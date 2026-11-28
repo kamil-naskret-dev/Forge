@@ -20,6 +20,9 @@ out/
 *.log
 npm-debug.log*
 
+# Claude Code (local only)
+.claude/
+
 # Editor
 .DS_Store
 *.swp

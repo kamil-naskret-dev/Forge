@@ -1,50 +1,102 @@
 import {
-  Body,
   Controller,
+  Body,
   Get,
   HttpCode,
   HttpStatus,
   Post,
   Redirect,
+  Req,
+  Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import type { User } from '@prisma/client';
+import type { CookieOptions, Request, Response } from 'express';
+import ms, { type StringValue } from 'ms';
+import type { Env } from '../config/index.js';
 import { CurrentUser, Public } from '../common/decorators/index.js';
-import type { AuthTokens } from './auth.service.js';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
-import { RefreshDto } from './dto/refresh.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
+
+const REFRESH_COOKIE = 'refresh_token';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  private readonly cookieOptions: CookieOptions;
+
+  constructor(
+    private readonly authService: AuthService,
+    private readonly config: ConfigService<Env, true>,
+  ) {
+    const expiresIn = this.config.get('JWT_REFRESH_EXPIRES_IN', { infer: true });
+    const isProduction = this.config.get('NODE_ENV', { infer: true }) === 'production';
+
+    this.cookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'strict' : 'lax',
+      maxAge: ms(expiresIn as StringValue),
+      path: '/',
+    };
+  }
 
   @Public()
   @Post('register')
-  register(@Body() dto: RegisterDto): Promise<AuthTokens> {
-    return this.authService.register(dto);
+  async register(
+    @Body() dto: RegisterDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ accessToken: string }> {
+    const { accessToken, refreshToken } = await this.authService.register(dto);
+    res.cookie(REFRESH_COOKIE, refreshToken, this.cookieOptions);
+    return { accessToken };
   }
 
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() dto: LoginDto): Promise<AuthTokens> {
-    return this.authService.login(dto);
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ accessToken: string }> {
+    const { accessToken, refreshToken } = await this.authService.login(dto);
+    res.cookie(REFRESH_COOKIE, refreshToken, this.cookieOptions);
+    return { accessToken };
   }
 
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  refresh(@Body() dto: RefreshDto): Promise<AuthTokens> {
-    return this.authService.refresh(dto);
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ accessToken: string }> {
+    const token = (req.cookies as Record<string, string | undefined>)[REFRESH_COOKIE];
+
+    if (!token) {
+      throw new UnauthorizedException('Missing refresh token');
+    }
+
+    const { accessToken, refreshToken } = await this.authService.refresh(token);
+    res.cookie(REFRESH_COOKIE, refreshToken, this.cookieOptions);
+    return { accessToken };
   }
 
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  logout(@CurrentUser() user: User, @Body() dto: RefreshDto): Promise<void> {
-    return this.authService.logout(user.id, dto.refreshToken);
+  async logout(
+    @CurrentUser() user: User,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    const token = (req.cookies as Record<string, string | undefined>)[REFRESH_COOKIE];
+    if (token) {
+      await this.authService.logout(user.id, token);
+    }
+    res.clearCookie(REFRESH_COOKIE, { path: '/' });
   }
 
   @Public()
@@ -58,14 +110,15 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   @Get('google/callback')
   @Redirect()
-  async googleCallback(@CurrentUser() user: User): Promise<{ url: string }> {
-    const tokens = await this.authService.issueTokens(user);
-    const params = new URLSearchParams({
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-    });
-    const frontendUrl = process.env['FRONTEND_URL'] ?? 'http://localhost:5173';
-    return { url: `${frontendUrl}/auth/callback?${params.toString()}` };
+  async googleCallback(
+    @CurrentUser() user: User,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ url: string }> {
+    const { accessToken, refreshToken } = await this.authService.issueTokens(user);
+    res.cookie(REFRESH_COOKIE, refreshToken, this.cookieOptions);
+
+    const frontendUrl = this.config.get('FRONTEND_URL', { infer: true });
+    return { url: `${frontendUrl}/auth/callback?accessToken=${accessToken}` };
   }
 
   @Get('me')
